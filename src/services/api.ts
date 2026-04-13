@@ -39,6 +39,36 @@ export interface LoginPayload {
   password: string;
 }
 
+export interface OtpAuthPayload {
+  recipient: string;
+  otp: string;
+}
+
+export interface SendOtpPayload {
+  recipient: string;
+  channel: 'phone' | 'email';
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: AppRole;
+  address?: string | null;
+  city?: string | null;
+  pincode?: string | null;
+  profileImage?: string | null;
+}
+
+export interface UpdateProfilePayload {
+  name?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  pincode?: string;
+}
+
 export interface Business {
   id: string;
   userId: string;
@@ -54,12 +84,64 @@ export interface Business {
   totalOrders: number;
 }
 
+export interface BusinessStats {
+  businessId: string;
+  totalOrders: number;
+  revenue: number;
+  pendingOrders: number;
+  activeRiders: number;
+}
+
 export interface BusinessInput {
   businessName: string;
   address: string;
   city: string;
   pincode: string;
   gstNumber?: string;
+}
+
+export interface BusinessRegistrationFormInput {
+  businessName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  serviceArea: string;
+  businessType: 'laundry' | 'dry_clean';
+  idProof: File;
+  shopImage: File;
+}
+
+export interface BusinessRegistrationResponse {
+  id: string;
+  name: string;
+  owner: string;
+  phone: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface AdminBusinessRegistrationItem {
+  id: string;
+  businessName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  serviceArea: string;
+  businessType: 'laundry' | 'dry_clean';
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  documents: {
+    idProofUrl: string | null;
+    shopImageUrl: string | null;
+  };
+}
+
+export interface AdminBusinessApprovalResult {
+  registrationId: string;
+  status: 'approved' | 'rejected';
+  businessId?: string;
+  loginPhone?: string;
+  loginMode?: 'otp';
+  businessPortalEnabled?: boolean;
 }
 
 export interface ServiceItem {
@@ -127,12 +209,45 @@ export interface OrderDetails extends OrderListItem {
   timeline: Array<{ label: string; status: string; at: string }>;
 }
 
+export interface BusinessOrderListItem extends OrderListItem {
+  items: OrderItem[];
+}
+
+export interface CouponItem {
+  id: string;
+  businessId?: string;
+  code: string;
+  discountType: 'percentage' | 'flat';
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscount?: number | null;
+  usageLimit?: number | null;
+  usedCount: number;
+  validFrom: string;
+  validTill: string;
+  isActive: boolean;
+}
+
+export interface CouponInput {
+  businessId?: string;
+  code: string;
+  discountType: CouponItem['discountType'];
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscount?: number;
+  usageLimit?: number;
+  validFrom: string;
+  validTill: string;
+}
+
 export interface CreateOrderInput {
   businessId: string;
   pickupSlot: string;
   deliverySlot: string;
   pickupDate: string;
   deliveryDate: string;
+  pickupAddress?: string;
+  contactPhone?: string;
   items: Array<{
     serviceId: string;
     itemName: string;
@@ -174,8 +289,41 @@ export async function registerRequest(payload: RegisterPayload) {
   return response.data.data;
 }
 
+export async function registerWithOtpRequest(payload: RegisterPayload & OtpAuthPayload) {
+  const response = await api.post<ApiEnvelope<AuthResponse>>('/auth/register-otp', payload);
+  return response.data.data;
+}
+
 export async function meRequest() {
   const response = await api.get<ApiEnvelope<AuthUser>>('/auth/me');
+  return response.data.data;
+}
+
+export async function loginWithOtpRequest(payload: OtpAuthPayload) {
+  const response = await api.post<ApiEnvelope<AuthResponse>>('/auth/login-otp', payload);
+  return response.data.data;
+}
+
+export async function sendOtpRequest(payload: SendOtpPayload) {
+  const response = await api.post<ApiEnvelope<{ recipient: string; channel: string; expiresInMinutes: number }>>(
+    '/auth/send-otp',
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function verifyOtpRequest(payload: OtpAuthPayload & { channel: 'phone' | 'email' }) {
+  const response = await api.post<ApiEnvelope<{ recipient: string; verified: boolean }>>('/auth/verify-otp', payload);
+  return response.data.data;
+}
+
+export async function getProfileRequest() {
+  const response = await api.get<ApiEnvelope<UserProfile>>('/users/profile');
+  return response.data.data;
+}
+
+export async function updateProfileRequest(payload: UpdateProfilePayload) {
+  const response = await api.patch<ApiEnvelope<UserProfile>>('/users/profile', payload);
   return response.data.data;
 }
 
@@ -191,13 +339,58 @@ export async function getMyBusiness() {
   return response.data.data;
 }
 
+export async function getBusinessStatsRequest(businessId: string) {
+  const response = await api.get<ApiEnvelope<BusinessStats>>(`/businesses/${businessId}/stats`);
+  return response.data.data;
+}
+
 export async function createBusiness(payload: BusinessInput) {
   const response = await api.post<ApiEnvelope<Business>>('/businesses', payload);
   return response.data.data;
 }
 
+export async function submitBusinessRegistrationRequest(payload: BusinessRegistrationFormInput) {
+  const formData = new FormData();
+  formData.append('businessName', payload.businessName);
+  formData.append('ownerName', payload.ownerName);
+  formData.append('phone', payload.phone);
+  formData.append('address', payload.address);
+  formData.append('serviceArea', payload.serviceArea);
+  formData.append('businessType', payload.businessType);
+  formData.append('idProof', payload.idProof);
+  formData.append('shopImage', payload.shopImage);
+
+  const response = await api.post<ApiEnvelope<BusinessRegistrationResponse>>('/business/register', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return response.data.data;
+}
+
 export async function getAdminBusinesses() {
   const response = await api.get<ApiEnvelope<Business[]>>('/admin/businesses');
+  return response.data.data;
+}
+
+export async function getAdminBusinessRegistrations() {
+  const response = await api.get<ApiEnvelope<AdminBusinessRegistrationItem[]>>('/admin/business-registrations');
+  return response.data.data;
+}
+
+export async function getAdminBusinessRegistrationDetails(id: string) {
+  const response = await api.get<ApiEnvelope<AdminBusinessRegistrationItem>>(`/admin/business-registrations/${id}`);
+  return response.data.data;
+}
+
+export async function approveBusinessRegistrationRequest(id: string) {
+  const response = await api.patch<ApiEnvelope<AdminBusinessApprovalResult>>(`/business/${id}/approve`);
+  return response.data.data;
+}
+
+export async function rejectBusinessRegistrationRequest(id: string) {
+  const response = await api.patch<ApiEnvelope<AdminBusinessApprovalResult>>(`/business/${id}/reject`);
   return response.data.data;
 }
 
@@ -218,13 +411,35 @@ export async function createService(payload: ServiceInput) {
   return response.data.data;
 }
 
+export async function updateServiceRequest(id: string, payload: Partial<ServiceInput>) {
+  const response = await api.patch<ApiEnvelope<ServiceItem>>(`/services/${id}`, payload);
+  return response.data.data;
+}
+
 export async function removeService(id: string) {
   const response = await api.delete<ApiEnvelope<{ id: string; removed: boolean }>>(`/services/${id}`);
   return response.data.data;
 }
 
 export async function createOrderRequest(payload: CreateOrderInput) {
-  const response = await api.post<ApiEnvelope<OrderDetails>>('/orders', payload);
+  const notes = [
+    payload.pickupAddress ? `Pickup Address: ${payload.pickupAddress}` : '',
+    payload.contactPhone ? `Contact Phone: ${payload.contactPhone}` : '',
+    payload.specialInstructions ?? '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const response = await api.post<ApiEnvelope<OrderDetails>>('/orders', {
+    businessId: payload.businessId,
+    pickupSlot: payload.pickupSlot,
+    deliverySlot: payload.deliverySlot,
+    pickupDate: payload.pickupDate,
+    deliveryDate: payload.deliveryDate,
+    items: payload.items,
+    couponCode: payload.couponCode,
+    specialInstructions: notes || undefined,
+  });
   return response.data.data;
 }
 
@@ -244,7 +459,7 @@ export async function cancelOrderRequest(id: string) {
 }
 
 export async function getBusinessOrders() {
-  const response = await api.get<ApiEnvelope<{ filters: Record<string, string | undefined>; items: OrderListItem[] }>>(
+  const response = await api.get<ApiEnvelope<{ filters: Record<string, string | undefined>; items: BusinessOrderListItem[] }>>(
     '/business/orders',
   );
   return response.data.data.items;
@@ -252,9 +467,29 @@ export async function getBusinessOrders() {
 
 export async function updateBusinessOrderStatus(id: string, status: OrderListItem['status']) {
   const response = await api.patch<ApiEnvelope<{ orderId: string; status: string }>>(
-    `/business/orders/${id}/status`,
+    `/orders/${id}/status`,
     { status },
   );
+  return response.data.data;
+}
+
+export async function getCouponsRequest() {
+  const response = await api.get<ApiEnvelope<CouponItem[]>>('/coupons');
+  return response.data.data;
+}
+
+export async function createCouponRequest(payload: CouponInput) {
+  const response = await api.post<ApiEnvelope<CouponItem>>('/coupons', payload);
+  return response.data.data;
+}
+
+export async function updateCouponRequest(id: string, payload: CouponInput) {
+  const response = await api.patch<ApiEnvelope<CouponItem>>(`/coupons/${id}`, payload);
+  return response.data.data;
+}
+
+export async function removeCouponRequest(id: string) {
+  const response = await api.delete<ApiEnvelope<{ id: string; deleted: boolean }>>(`/coupons/${id}`);
   return response.data.data;
 }
 

@@ -1,17 +1,22 @@
 import axios from 'axios';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { ExternalLink, Search } from 'lucide-react';
 import { useAuth } from '../features/auth/auth-store';
 import {
+  AdminBusinessRegistrationItem,
+  approveBusinessRegistrationRequest,
   approveBusinessRequest,
   Business,
   createBusiness,
   createOrderRequest,
   createService,
+  getAdminBusinessRegistrationDetails,
+  getAdminBusinessRegistrations,
   getAdminBusinesses,
   getApprovedBusinesses,
   getBusinessServices,
   getMyBusiness,
+  rejectBusinessRegistrationRequest,
   removeService,
   ServiceItem,
 } from '../services/api';
@@ -41,6 +46,8 @@ export function BusinessesPage() {
   const deferredQuery = useDeferredValue(query);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [adminBusinesses, setAdminBusinesses] = useState<Business[]>([]);
+  const [adminRegistrations, setAdminRegistrations] = useState<AdminBusinessRegistrationItem[]>([]);
+  const [selectedRegistration, setSelectedRegistration] = useState<AdminBusinessRegistrationItem | null>(null);
   const [myBusiness, setMyBusiness] = useState<Business | null>(null);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -109,8 +116,14 @@ export function BusinessesPage() {
         }
 
         if (user.role === 'admin') {
-          const items = await getAdminBusinesses();
+          const [items, registrations] = await Promise.all([
+            getAdminBusinesses(),
+            getAdminBusinessRegistrations(),
+          ]);
           setAdminBusinesses(items);
+          setAdminRegistrations(registrations);
+          const pending = registrations.find((item) => item.status === 'pending') ?? registrations[0] ?? null;
+          setSelectedRegistration(pending ? await getAdminBusinessRegistrationDetails(pending.id) : null);
           return;
         }
 
@@ -233,6 +246,46 @@ export function BusinessesPage() {
       setBusy(false);
     }
   };
+
+  const reloadAdminRegistrations = async () => {
+    const registrations = await getAdminBusinessRegistrations();
+    setAdminRegistrations(registrations);
+    const currentId = selectedRegistration?.id;
+    if (currentId) {
+      const next = registrations.find((item) => item.id === currentId);
+      setSelectedRegistration(next ? await getAdminBusinessRegistrationDetails(next.id) : null);
+      return;
+    }
+    const pending = registrations.find((item) => item.status === 'pending') ?? registrations[0] ?? null;
+    setSelectedRegistration(pending ? await getAdminBusinessRegistrationDetails(pending.id) : null);
+  };
+
+  const moderateRegistration = async (id: string, action: 'approve' | 'reject') => {
+    setBusy(true);
+    setErrorMessage('');
+    setMessage('');
+
+    try {
+      const response =
+        action === 'approve'
+          ? await approveBusinessRegistrationRequest(id)
+          : await rejectBusinessRegistrationRequest(id);
+
+      await reloadAdminRegistrations();
+      if (action === 'approve') {
+        setAdminBusinesses(await getAdminBusinesses());
+        setMessage(`Approved. Business portal enabled with ID ${response.businessId} and OTP login on ${response.loginPhone}.`);
+      } else {
+        setMessage('Business registration rejected.');
+      }
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mediaBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api').replace(/\/api\/?$/, '');
 
   const createOrder = async () => {
     if (!selectedBusiness) {
@@ -424,47 +477,149 @@ export function BusinessesPage() {
   }
 
   if (user?.role === 'admin') {
+    const pendingRegistrations = adminRegistrations.filter((item) => item.status === 'pending');
+
     return (
       <div className="page-stack">
         <section className="mobile-section-card discover-hero-card">
           <div className="section-row">
             <div>
-              <h3>Business Approvals</h3>
-              <p>Approve or review partner businesses before they go live.</p>
+              <h3>Business Requests</h3>
+              <p>Review pending registrations, inspect documents, and approve or reject access.</p>
             </div>
+            <span className="subscription-pill">{pendingRegistrations.length} pending</span>
           </div>
           {message ? <p className="success-text">{message}</p> : null}
           {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
         </section>
 
-        <div className="mobile-business-grid">
-          {adminBusinesses.length === 0 ? (
+        <section className="admin-review-layout">
+          <div className="mobile-business-grid admin-request-grid">
+            {pendingRegistrations.length === 0 ? (
             <article className="discover-card empty-state-card">
               <div>
-                <strong>No business registrations yet</strong>
-                <p>New partner registrations will appear here.</p>
+                <strong>No pending business requests</strong>
+                <p>All current registrations have already been moderated.</p>
               </div>
             </article>
           ) : (
-            adminBusinesses.map((business) => (
-              <article key={business.id} className="discover-card">
+            pendingRegistrations.map((registration) => (
+              <article key={registration.id} className={selectedRegistration?.id === registration.id ? 'discover-card discover-card-selected' : 'discover-card'}>
                 <div>
-                  <strong>{business.businessName}</strong>
-                  <p>{business.city}</p>
-                  <small>{business.address}</small>
+                  <strong>{registration.businessName}</strong>
+                  <p>{registration.ownerName}</p>
+                  <small>{registration.serviceArea}</small>
                 </div>
                 <div className="stack-actions">
-                  <span className={business.isApproved ? 'status-pill status-approved' : 'status-pill status-requested'}>
-                    {business.isApproved ? 'approved' : 'pending'}
-                  </span>
-                  <button className="primary-button" type="button" onClick={() => void toggleApproval(business, !business.isApproved)} disabled={busy}>
-                    {business.isApproved ? 'Mark pending' : 'Approve'}
+                  <span className="status-pill status-requested">pending</span>
+                  <button className="primary-button" type="button" onClick={() => void getAdminBusinessRegistrationDetails(registration.id).then(setSelectedRegistration).catch((error) => setErrorMessage(getErrorMessage(error)))} disabled={busy}>
+                    Review
                   </button>
                 </div>
               </article>
             ))
           )}
-        </div>
+          </div>
+
+          <article className="panel admin-detail-panel">
+            <div className="panel-header">
+              <h3>Business Detail</h3>
+              <span>{selectedRegistration?.status ?? 'Select a request'}</span>
+            </div>
+
+            {selectedRegistration ? (
+              <div className="admin-registration-detail">
+                <div className="detail-grid">
+                  <article className="inline-form-card">
+                    <strong>{selectedRegistration.businessName}</strong>
+                    <p>Owner: {selectedRegistration.ownerName}</p>
+                    <small>{selectedRegistration.phone}</small>
+                  </article>
+                  <article className="inline-form-card">
+                    <strong>Service footprint</strong>
+                    <p>{selectedRegistration.serviceArea}</p>
+                    <small>{selectedRegistration.businessType.replace(/_/g, ' ')}</small>
+                  </article>
+                  <article className="inline-form-card detail-span-full">
+                    <strong>Address</strong>
+                    <p>{selectedRegistration.address}</p>
+                    <small>Submitted {new Date(selectedRegistration.createdAt).toLocaleString()}</small>
+                  </article>
+                </div>
+
+                <div className="detail-grid">
+                  <article className="inline-form-card">
+                    <strong>ID Proof</strong>
+                    {selectedRegistration.documents.idProofUrl ? (
+                      <a className="portal-link-card" href={`${mediaBaseUrl}${selectedRegistration.documents.idProofUrl}`} target="_blank" rel="noreferrer">
+                        <ExternalLink size={16} />
+                        <span>Open uploaded document</span>
+                      </a>
+                    ) : (
+                      <p>No document uploaded</p>
+                    )}
+                  </article>
+                  <article className="inline-form-card">
+                    <strong>Shop Image</strong>
+                    {selectedRegistration.documents.shopImageUrl ? (
+                      <a className="portal-link-card" href={`${mediaBaseUrl}${selectedRegistration.documents.shopImageUrl}`} target="_blank" rel="noreferrer">
+                        <ExternalLink size={16} />
+                        <span>Open uploaded image</span>
+                      </a>
+                    ) : (
+                      <p>No image uploaded</p>
+                    )}
+                  </article>
+                </div>
+
+                {selectedRegistration.status === 'pending' ? (
+                  <div className="admin-action-row">
+                    <button className="primary-button" type="button" onClick={() => void moderateRegistration(selectedRegistration.id, 'approve')} disabled={busy}>
+                      Approve
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => void moderateRegistration(selectedRegistration.id, 'reject')} disabled={busy}>
+                      Reject
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="list-row">
+                <div>
+                  <strong>Select a business request</strong>
+                  <p>Uploaded documents and moderation actions appear here.</p>
+                </div>
+              </div>
+            )}
+          </article>
+        </section>
+
+        <article className="panel">
+          <div className="panel-header">
+            <h3>Approved Businesses</h3>
+            <span>{adminBusinesses.length} total</span>
+          </div>
+          {adminBusinesses.length === 0 ? (
+            <div className="list-row">
+              <div>
+                <strong>No approved businesses yet</strong>
+                <p>Approved registrations will appear here after moderation.</p>
+              </div>
+            </div>
+          ) : (
+            adminBusinesses.slice(0, 5).map((business) => (
+              <div key={business.id} className="list-row">
+                <div>
+                  <strong>{business.businessName}</strong>
+                  <p>{business.city} • {business.address}</p>
+                </div>
+                <span className={business.isApproved ? 'status-pill status-approved' : 'status-pill status-requested'}>
+                  {business.isApproved ? 'approved' : 'pending'}
+                </span>
+              </div>
+            ))
+          )}
+        </article>
       </div>
     );
   }

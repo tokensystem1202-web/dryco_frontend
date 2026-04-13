@@ -1,9 +1,9 @@
 import axios from 'axios';
-import { Check, CircleDashed, Phone, Truck } from 'lucide-react';
+import { Check, CircleDashed } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../features/auth/auth-store';
 import {
-  cancelOrderRequest,
   getAdminOrders,
   getBusinessOrders,
   getCustomerOrders,
@@ -23,6 +23,10 @@ const nextStatusMap: Partial<Record<OrderListItem['status'], OrderListItem['stat
 
 function formatStatus(value: string) {
   return value.replace(/_/g, ' ');
+}
+
+function getStatusClass(value: string) {
+  return `status-pill status-${value}`;
 }
 
 function getErrorMessage(error: unknown) {
@@ -70,7 +74,7 @@ export function OrdersPage() {
 
         setOrders(items);
 
-        if (items[0] && user.role !== 'admin') {
+        if (items[0] && user.role === 'business') {
           setSelectedOrder(await getOrderDetailsRequest(items[0].id));
         } else {
           setSelectedOrder(null);
@@ -121,31 +125,10 @@ export function OrdersPage() {
       setOrders(items);
       if (selectedOrder) {
         const refreshed = items.find((item) => item.id === selectedOrder.id);
-        if (refreshed && user.role !== 'admin') {
+        if (refreshed && user.role === 'business') {
           setSelectedOrder(await getOrderDetailsRequest(refreshed.id));
         }
       }
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const cancelSelectedOrder = async () => {
-    if (!selectedOrder) {
-      return;
-    }
-
-    setBusy(true);
-    setErrorMessage('');
-    setMessage('');
-
-    try {
-      await cancelOrderRequest(selectedOrder.id);
-      await refreshOrders();
-      setSelectedOrder(await getOrderDetailsRequest(selectedOrder.id));
-      setMessage('Order cancelled successfully.');
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -182,6 +165,59 @@ export function OrdersPage() {
     return null;
   }
 
+  if (user.role === 'customer') {
+    return (
+      <div className="page-stack">
+        <section className="page-hero compact-hero customer-portal-hero">
+          <div>
+            <p className="eyebrow">Orders</p>
+            <h2>Track all your orders in one place.</h2>
+            <p className="hero-copy">View status, pricing, and tracking.</p>
+          </div>
+          <Link className="primary-button" to="/book">Book Pickup</Link>
+        </section>
+
+        {message ? <p className="success-text">{message}</p> : null}
+        {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
+
+        <section className="mobile-section-card booking-panel">
+          <div className="section-row">
+            <div>
+              <h3>Order History</h3>
+              <p>{orders.length} order{orders.length === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+
+          <div className="mobile-order-list">
+            {orders.length === 0 ? (
+              <article className="mobile-order-card empty-state-card">
+                <div>
+                  <strong>No orders yet</strong>
+                  <p>Start your first booking.</p>
+                </div>
+              </article>
+            ) : (
+              orders.map((order) => (
+                <article key={order.id} className="mobile-order-card customer-history-card">
+                  <div>
+                    <strong>{order.orderNumber}</strong>
+                    <p>{order.pickupDate}</p>
+                    <span className={getStatusClass(order.status)}>{formatStatus(order.status)}</span>
+                    <small>{order.pickupSlot} • {order.deliverySlot}</small>
+                  </div>
+                  <div className="order-side-meta">
+                    <strong>Rs {order.totalAmount}</strong>
+                    <Link className="text-link-button" to={`/orders/${order.id}`}>Track order</Link>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   if (user.role !== 'admin') {
     return (
       <div className="page-stack">
@@ -190,7 +226,9 @@ export function OrdersPage() {
             <p className="eyebrow">Order Tracking</p>
             <h2>{selectedOrder ? selectedOrder.orderNumber : 'No active order'}</h2>
           </div>
-          <span className="status-pill status-requested">{selectedOrder?.status ?? 'pending'}</span>
+          <span className={getStatusClass(selectedOrder?.status ?? 'requested')}>
+            {selectedOrder ? formatStatus(selectedOrder.status) : 'pending'}
+          </span>
         </section>
 
         {message ? <p className="success-text">{message}</p> : null}
@@ -250,31 +288,6 @@ export function OrdersPage() {
           ) : null}
         </section>
 
-        {user.role === 'customer' ? (
-          <section className="mobile-section-card rider-card-modern">
-            <div className="rider-identity">
-              <div className="rider-avatar">R</div>
-              <div>
-                <strong>{selectedOrder?.riderId ? `Rider ${selectedOrder.riderId.slice(0, 6)}` : 'No rider assigned'}</strong>
-                <p>{selectedOrder?.specialInstructions || 'Rider details appear when an order reaches dispatch stage.'}</p>
-              </div>
-            </div>
-            <div className="rider-actions">
-              <button className="circle-action success-action" type="button">
-                <Phone size={16} />
-              </button>
-              <button className="circle-action" type="button">
-                <Truck size={16} />
-              </button>
-            </div>
-            {selectedOrder && ['requested', 'accepted'].includes(selectedOrder.status) ? (
-              <button className="secondary-button full-width-button" type="button" onClick={() => void cancelSelectedOrder()} disabled={busy}>
-                Cancel order
-              </button>
-            ) : null}
-          </section>
-        ) : null}
-
         {user.role === 'business' ? (
           <section className="mobile-section-card">
             <div className="section-row">
@@ -299,9 +312,8 @@ export function OrdersPage() {
                   <article key={order.id} className="mobile-order-card business-order-card">
                     <div>
                       <strong>{order.orderNumber}</strong>
-                      <p>
-                        {order.pickupDate} • {formatStatus(order.status)}
-                      </p>
+                      <p>{order.pickupDate}</p>
+                      <span className={getStatusClass(order.status)}>{formatStatus(order.status)}</span>
                     </div>
                     <div className="order-side-meta">
                       <strong>Rs {order.totalAmount}</strong>

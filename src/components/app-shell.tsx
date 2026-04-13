@@ -1,15 +1,15 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { PropsWithChildren } from 'react';
 import {
-  Bell,
-  BookOpen,
   Building2,
   Home,
   LogOut,
   Package,
+  CircleUserRound,
   Shield,
   ShoppingBag,
   Store,
+  Tag,
   Zap,
 } from 'lucide-react';
 import { AppRole } from '../services/api';
@@ -21,18 +21,18 @@ const navItems: Record<
 > = {
   customer: [
     { to: '/customer', label: 'Home', icon: Home },
-    { to: '/businesses', label: 'Book', icon: ShoppingBag },
+    { to: '/book', label: 'Book', icon: ShoppingBag },
     { to: '/orders', label: 'Orders', icon: Package },
   ],
   business: [
-    { to: '/business', label: 'Dashboard', icon: Home },
-    { to: '/orders', label: 'Orders', icon: Package },
-    { to: '/businesses', label: 'Catalog', icon: BookOpen },
+    { to: '/business/dashboard', label: 'Dashboard', icon: Home },
+    { to: '/business/pricing', label: 'Pricing', icon: Package },
+    { to: '/business/offers', label: 'Offers', icon: Tag },
   ],
   admin: [
     { to: '/admin', label: 'Dashboard', icon: Shield },
     { to: '/orders', label: 'Orders', icon: Package },
-    { to: '/businesses', label: 'Businesses', icon: Building2 },
+    { to: '/admin/businesses', label: 'Businesses', icon: Building2 },
   ],
 };
 
@@ -45,8 +45,9 @@ export function AppShell({ children }: PropsWithChildren) {
   }
 
   const pageTitle =
-    navItems[user.role].find((item) => location.pathname.startsWith(item.to))?.label ??
-    'WashFlow';
+    [...navItems[user.role]]
+      .sort((left, right) => right.to.length - left.to.length)
+      .find((item) => location.pathname.startsWith(item.to))?.label ?? 'WashFlow';
 
   if (user.role !== 'admin') {
     return (
@@ -77,9 +78,9 @@ export function AppShell({ children }: PropsWithChildren) {
                   </div>
                 </div>
 
-                <button className="icon-button" type="button" aria-label="Notifications">
-                  <Bell size={20} />
-                </button>
+                <Link className="icon-button" to={user.role === 'customer' ? '/profile' : '/business/dashboard'} aria-label="Profile">
+                  <CircleUserRound size={20} />
+                </Link>
               </header>
 
               <main className="mobile-content">{children}</main>

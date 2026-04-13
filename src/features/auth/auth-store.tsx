@@ -12,8 +12,10 @@ import {
   AuthTokens,
   AuthUser,
   loginRequest,
+  loginWithOtpRequest,
   meRequest,
   registerRequest,
+  registerWithOtpRequest,
   setAuthToken,
 } from '../../services/api';
 
@@ -32,7 +34,9 @@ interface AuthContextValue {
   user: AuthState | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<AuthState>;
+  loginWithOtp: (recipient: string, otp: string) => Promise<AuthState>;
   register: (payload: RegisterInput) => Promise<AuthState>;
+  registerWithOtp: (payload: RegisterInput & { recipient: string; otp: string }) => Promise<AuthState>;
   logout: () => void;
 }
 
@@ -87,8 +91,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
         startTransition(() => setUser(response.user));
         return response.user;
       },
+      loginWithOtp: async (recipient, otp) => {
+        const response = await loginWithOtpRequest({ recipient, otp });
+        setAuthToken(response.tokens.accessToken);
+        const session: StoredSession = { user: response.user, tokens: response.tokens };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+        startTransition(() => setUser(response.user));
+        return response.user;
+      },
       register: async (payload) => {
         const response = await registerRequest(payload);
+        setAuthToken(response.tokens.accessToken);
+        const session: StoredSession = { user: response.user, tokens: response.tokens };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+        startTransition(() => setUser(response.user));
+        return response.user;
+      },
+      registerWithOtp: async (payload) => {
+        const response = await registerWithOtpRequest(payload);
         setAuthToken(response.tokens.accessToken);
         const session: StoredSession = { user: response.user, tokens: response.tokens };
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
